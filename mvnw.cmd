@@ -4,9 +4,10 @@ setlocal
 REM Apache Maven Wrapper startup script (Windows)
 REM Downloads the wrapper JAR (and then Maven) on first run.
 
-set BASEDIR=%~dp0
-set WRAPPER_DIR=%BASEDIR%.mvn\wrapper
-set JAR_FILE=%WRAPPER_DIR%\maven-wrapper.jar
+set "BASEDIR=%~dp0"
+if "%BASEDIR:~-1%"=="\" set "BASEDIR=%BASEDIR:~0,-1%"
+set "WRAPPER_DIR=%BASEDIR%\.mvn\wrapper"
+set "JAR_FILE=%WRAPPER_DIR%\maven-wrapper.jar"
 set WRAPPER_URL=https://repo.maven.apache.org/maven2/org/apache/maven/wrapper/maven-wrapper/3.2.0/maven-wrapper-3.2.0.jar
 
 if not exist "%WRAPPER_DIR%" mkdir "%WRAPPER_DIR%"
