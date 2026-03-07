@@ -29,10 +29,27 @@ public class CityRescueImpl implements CityRescue {
         return x >= 0 && x < width && y >= 0 && y < height;
     }
 
-    private Station findStation(int stationId) {
-        for (int i = 0; i < stationCount; i++) {
-            if (stations[i].id == stationId) {
-                return stations[i];
+    private boolean canHandle(Unit unit, Incident incident) {
+        if (unit.type == UnitType.POLICE_CAR && incident.type == IncidentType.CRIME) {
+            return true;
+        }
+        if (unit.type == UnitType.FIRE_ENGINE && incident.type == IncidentType.FIRE) {
+            return true;
+        }
+        if (unit.type == UnitType.AMBULANCE && incident.type == IncidentType.MEDICAL) {
+            return true;
+        }
+        return false;
+    }
+
+    private int manhattanDistance(int x1, int y1, int x2, int y2) {
+        return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+    }
+
+    private Incident findIncident(int incidentId) {
+        for (int i = 0; i < incidentCount; i++) {
+            if (incidents[i].id == incidentId) {
+                return incidents[i];
             }
         }
         return null;
@@ -113,19 +130,20 @@ public class CityRescueImpl implements CityRescue {
         if (type == null) {
             throw new InvalidUnitException("Invalid unit type");
         }
-        boolean found = false;
+
+        Station station = null;
         for (int i = 0; i < stationCount; i++) {
             if (stations[i].id == stationId) {
-                found = true;
+                station = stations[i];
                 break;
             }
         }
-        if (!found) {
+        if (station == null) {
             throw new IDNotRecognisedException("Station ID not recognised");
         }
 
         int id = nextUnitId++;
-        units[unitCount++] = new Unit(id, type, stationId);
+        units[unitCount++] = new Unit(id, type, stationId, station.x, station.y);
         return id;
     }
 
@@ -157,7 +175,11 @@ public class CityRescueImpl implements CityRescue {
     public String viewUnit(int unitId) throws IDNotRecognisedException {
         for (int i = 0; i < unitCount; i++) {
             if (units[i].id == unitId) {
-                return "U#" + unitId;
+                Unit unit = units[i];
+                return "U#" + unit.id
+                        + " TYPE=" + unit.type
+                        + " LOC=(" + unit.x + "," + unit.y + ")"
+                        + " STATUS=" + unit.status;
             }
         }
         throw new IDNotRecognisedException("Unit ID not recognised");
@@ -199,7 +221,13 @@ public class CityRescueImpl implements CityRescue {
     public String viewIncident(int incidentId) throws IDNotRecognisedException {
         for (int i = 0; i < incidentCount; i++) {
             if (incidents[i].id == incidentId) {
-                return "I#" + incidentId;
+                Incident incident = incidents[i];
+                return "I#" + incident.id
+                        + " TYPE=" + incident.type
+                        + " SEV=" + incident.severity
+                        + " LOC=(" + incident.x + "," + incident.y + ")"
+                        + " STATUS=" + incident.status
+                        + " UNIT=" + incident.assignedUnitId;
             }
         }
         throw new IDNotRecognisedException("Incident ID not recognised");
@@ -207,14 +235,98 @@ public class CityRescueImpl implements CityRescue {
 
     @Override
     public void dispatch() {
-        // TODO: implement
-        throw new UnsupportedOperationException("Not implemented yet");
+        for (int i = 0; i < incidentCount; i++) {
+            Incident incident = incidents[i];
+
+            if (incident.assignedUnitId != -1) {
+                continue;
+            }
+
+            Unit bestUnit = null;
+            int bestDistance = Integer.MAX_VALUE;
+
+            for (int j = 0; j < unitCount; j++) {
+                Unit unit = units[j];
+
+                if (unit.assigned) {
+                    continue;
+                }
+
+                if (!canHandle(unit, incident)) {
+                    continue;
+                }
+
+                int distance = manhattanDistance(unit.x, unit.y, incident.x, incident.y);
+
+                if (bestUnit == null
+                        || distance < bestDistance
+                        || (distance == bestDistance && unit.id < bestUnit.id)) {
+                    bestUnit = unit;
+                    bestDistance = distance;
+                }
+            }
+
+            if (bestUnit != null) {
+                bestUnit.assigned = true;
+                bestUnit.incidentId = incident.id;
+                bestUnit.status = "EN_ROUTE";
+                incident.assignedUnitId = bestUnit.id;
+                incident.status = "DISPATCHED";
+            }
+        }
     }
 
     @Override
     public void tick() {
-        // TODO: implement
-        throw new UnsupportedOperationException("Not implemented yet");
+        tick++;
+
+        for (int i = 0; i < unitCount; i++) {
+            Unit unit = units[i];
+
+            if (!unit.assigned) {
+                continue;
+            }
+
+            Incident incident = findIncident(unit.incidentId);
+            if (incident == null) {
+                continue;
+            }
+
+            if (unit.status.equals("EN_ROUTE")) {
+                if (unit.x < incident.x) {
+                    unit.x++;
+                } else if (unit.x > incident.x) {
+                    unit.x--;
+                } else if (unit.y < incident.y) {
+                    unit.y++;
+                } else if (unit.y > incident.y) {
+                    unit.y--;
+                }
+
+                if (unit.x == incident.x && unit.y == incident.y) {
+                    unit.status = "AT_SCENE";
+                    incident.status = "IN_PROGRESS";
+
+                    if (unit.type == UnitType.AMBULANCE) {
+                        unit.workTicksRemaining = 2;
+                    } else if (unit.type == UnitType.POLICE_CAR) {
+                        unit.workTicksRemaining = 3;
+                    } else if (unit.type == UnitType.FIRE_ENGINE) {
+                        unit.workTicksRemaining = 4;
+                    }
+                }
+            } else if (unit.status.equals("AT_SCENE")) {
+                unit.workTicksRemaining--;
+
+                if (unit.workTicksRemaining <= 0) {
+                    unit.status = "IDLE";
+                    unit.assigned = false;
+                    unit.incidentId = -1;
+
+                    incident.status = "RESOLVED";
+                }
+            }
+        }
     }
 
     @Override
