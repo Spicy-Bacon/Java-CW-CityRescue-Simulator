@@ -1,6 +1,7 @@
 package cityrescue;
 
 import cityrescue.enums.IncidentType;
+import cityrescue.enums.IncidentStatus;
 
 public class Incident {
     public final int id;
@@ -9,7 +10,7 @@ public class Incident {
     public final int x;
     public final int y;
     public int assignedUnitId;
-    public String status;
+    public IncidentStatus status;
 
     public Incident(int id, IncidentType type, int severity, int x, int y) {
         this.id = id;
@@ -18,6 +19,6 @@ public class Incident {
         this.x = x;
         this.y = y;
         this.assignedUnitId = -1;
-        this.status = "REPORTED";
+        this.status = IncidentStatus.REPORTED;
     }
 }

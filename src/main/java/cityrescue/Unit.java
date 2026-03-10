@@ -1,6 +1,7 @@
 package cityrescue;
 
 import cityrescue.enums.IncidentType;
+import cityrescue.enums.UnitStatus;
 import cityrescue.enums.UnitType;
 
 public abstract class Unit {
@@ -11,7 +12,7 @@ public abstract class Unit {
 
     public boolean assigned;
     public int incidentId;
-    public String status;
+    public UnitStatus status;
     public int workTicksRemaining;
 
     public Unit(int id, int stationId, int x, int y) {
@@ -21,7 +22,7 @@ public abstract class Unit {
         this.y = y;
         this.assigned = false;
         this.incidentId = -1;
-        this.status = "IDLE";
+        this.status = UnitStatus.IDLE;
         this.workTicksRemaining = 0;
     }
 

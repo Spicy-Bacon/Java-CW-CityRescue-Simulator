@@ -11,13 +11,15 @@ import cityrescue.exceptions.*;
  */
 public class CityRescueImpl implements CityRescue {
 
-    private int width;
-    private int height;
-    private boolean[][] blocked;
+    private static final int MAX_STATIONS = 20;
+    private static final int MAX_UNITS = 50;
+    private static final int MAX_INCIDENTS = 200;
+
+    private CityMap cityMap;
     private int tick;
-    private Station[] stations = new Station[20];
-    private Unit[] units = new Unit[50];
-    private Incident[] incidents = new Incident[200];
+    private Station[] stations = new Station[MAX_STATIONS];
+    private Unit[] units = new Unit[MAX_UNITS];
+    private Incident[] incidents = new Incident[MAX_INCIDENTS];
     private int stationCount = 0;
     private int unitCount = 0;
     private int incidentCount = 0;
@@ -26,7 +28,7 @@ public class CityRescueImpl implements CityRescue {
     private int nextIncidentId = 1;
 
     private boolean inBounds(int x, int y) {
-        return x >= 0 && x < width && y >= 0 && y < height;
+        return cityMap != null && cityMap.inBounds(x, y);
     }
 
     private Station findStation(int stationId) {
@@ -49,15 +51,10 @@ public class CityRescueImpl implements CityRescue {
     }
 
     private int countObstacles() {
-        int count = 0;
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
-                if (blocked[x][y]) {
-                    count++;
-                }
-            }
+        if (cityMap == null) {
+            return 0;
         }
-        return count;
+        return cityMap.countObstacles();
     }
 
     private void removeStationAtIndex(int index) {
@@ -115,7 +112,7 @@ public class CityRescueImpl implements CityRescue {
             if (!inBounds(nx, ny)) {
                 continue;
             }
-            if (blocked[nx][ny]) {
+            if (cityMap.isBlocked(nx, ny)) {
                 continue;
             }
 
@@ -134,7 +131,7 @@ public class CityRescueImpl implements CityRescue {
             if (!inBounds(nx, ny)) {
                 continue;
             }
-            if (blocked[nx][ny]) {
+            if (cityMap.isBlocked(nx, ny)) {
                 continue;
             }
 
@@ -150,20 +147,21 @@ public class CityRescueImpl implements CityRescue {
             throw new InvalidGridException();
         }
 
-        this.width = width;
-        this.height = height;
-        this.blocked = new boolean[width][height];
+        this.cityMap = new CityMap(width, height);
         this.tick = 0;
-        stations = new Station[20];
-        units = new Unit[50];
-        incidents = new Incident[200];
+        stations = new Station[MAX_STATIONS];
+        units = new Unit[MAX_UNITS];
+        incidents = new Incident[MAX_INCIDENTS];
         stationCount = unitCount = incidentCount = 0;
         nextStationId = nextUnitId = nextIncidentId = 1;
     }
 
     @Override
     public int[] getGridSize() {
-        return new int[] { width, height };
+        if (cityMap == null) {
+            return new int[] { 0, 0 };
+        }
+        return new int[] { cityMap.getWidth(), cityMap.getHeight() };
     }
 
     @Override
@@ -171,7 +169,7 @@ public class CityRescueImpl implements CityRescue {
         if (!inBounds(x, y)) {
             throw new InvalidLocationException();
         }
-        blocked[x][y] = true;
+        cityMap.setBlocked(x, y, true);
     }
 
     @Override
@@ -179,7 +177,7 @@ public class CityRescueImpl implements CityRescue {
         if (!inBounds(x, y)) {
             throw new InvalidLocationException();
         }
-        blocked[x][y] = false;
+        cityMap.setBlocked(x, y, false);
     }
 
     @Override
@@ -187,8 +185,11 @@ public class CityRescueImpl implements CityRescue {
         if (name == null || name.trim().isEmpty()) {
             throw new InvalidNameException("Invalid station name");
         }
-        if (!inBounds(x, y) || blocked[x][y]) {
+        if (!inBounds(x, y) || cityMap.isBlocked(x, y)) {
             throw new InvalidLocationException();
+        }
+        if (stationCount >= MAX_STATIONS) {
+            throw new CapacityExceededException("Maximum number of stations reached");
         }
 
         int id = nextStationId++;
@@ -250,7 +251,10 @@ public class CityRescueImpl implements CityRescue {
             throw new IDNotRecognisedException("Station ID not recognised");
         }
         if (station.capacity > 0 && countUnitsAtStation(stationId) >= station.capacity) {
-            throw new IllegalStateException("Station full");
+            throw new IllegalStateException("Station has no free capacity");
+        }
+        if (unitCount >= MAX_UNITS) {
+            throw new CapacityExceededException("Maximum number of units reached");
         }
 
         int id = nextUnitId++;
@@ -283,7 +287,7 @@ public class CityRescueImpl implements CityRescue {
         }
 
         Unit unit = units[index];
-        if (unit.status.equals("EN_ROUTE") || unit.status.equals("AT_SCENE")) {
+        if (unit.status == UnitStatus.EN_ROUTE || unit.status == UnitStatus.AT_SCENE) {
             throw new IllegalStateException("Unit is busy");
         }
 
@@ -302,7 +306,7 @@ public class CityRescueImpl implements CityRescue {
             throw new IDNotRecognisedException("Station ID not recognised");
         }
 
-        if (!unit.status.equals("IDLE")) {
+        if (unit.status != UnitStatus.IDLE) {
             throw new IllegalStateException("Unit must be IDLE");
         }
 
@@ -323,12 +327,12 @@ public class CityRescueImpl implements CityRescue {
         }
 
         if (outOfService) {
-            if (!unit.status.equals("IDLE")) {
-                throw new IllegalStateException("Unit must be IDLE");
+            if (unit.status != UnitStatus.IDLE) {
+                throw new IllegalStateException("Unit must be IDLE to go out of service");
             }
-            unit.status = "OUT_OF_SERVICE";
+            unit.status = UnitStatus.OUT_OF_SERVICE;
         } else {
-            unit.status = "IDLE";
+            unit.status = UnitStatus.IDLE;
         }
     }
 
@@ -356,7 +360,7 @@ public class CityRescueImpl implements CityRescue {
                 + " STATUS=" + unit.status
                 + " INCIDENT=" + incidentText;
 
-        if (unit.status.equals("AT_SCENE")) {
+        if (unit.status == UnitStatus.AT_SCENE) {
             result += " WORK=" + unit.workTicksRemaining;
         }
 
@@ -368,8 +372,11 @@ public class CityRescueImpl implements CityRescue {
         if (type == null || severity < 1 || severity > 5) {
             throw new InvalidSeverityException("Invalid incident severity/type");
         }
-        if (!inBounds(x, y) || blocked[x][y]) {
+        if (!inBounds(x, y) || cityMap.isBlocked(x, y)) {
             throw new InvalidLocationException();
+        }
+        if (incidentCount >= MAX_INCIDENTS) {
+            throw new CapacityExceededException("Maximum number of incidents reached");
         }
 
         int id = nextIncidentId++;
@@ -384,21 +391,22 @@ public class CityRescueImpl implements CityRescue {
             throw new IDNotRecognisedException("Incident ID not recognised");
         }
 
-        if (!incident.status.equals("REPORTED") && !incident.status.equals("DISPATCHED")) {
-            throw new IllegalStateException("Cannot cancel incident in this state");
+        if (incident.status != IncidentStatus.REPORTED && incident.status != IncidentStatus.DISPATCHED) {
+            throw new IllegalStateException("Incident cannot be cancelled in this state");
         }
 
-        if (incident.status.equals("DISPATCHED") && incident.assignedUnitId != -1) {
+        if (incident.status == IncidentStatus.DISPATCHED && incident.assignedUnitId != -1) {
             Unit unit = findUnit(incident.assignedUnitId);
             if (unit != null) {
-                unit.status = "IDLE";
+                unit.status = UnitStatus.IDLE;
                 unit.assigned = false;
                 unit.incidentId = -1;
                 unit.workTicksRemaining = 0;
             }
         }
 
-        incident.status = "CANCELLED";
+        incident.assignedUnitId = -1;
+        incident.status = IncidentStatus.CANCELLED;
     }
 
     @Override
@@ -410,8 +418,8 @@ public class CityRescueImpl implements CityRescue {
         if (newSeverity < 1 || newSeverity > 5) {
             throw new InvalidSeverityException("Invalid severity");
         }
-        if (incident.status.equals("RESOLVED") || incident.status.equals("CANCELLED")) {
-            throw new IllegalStateException("Cannot escalate resolved/cancelled incident");
+        if (incident.status == IncidentStatus.RESOLVED || incident.status == IncidentStatus.CANCELLED) {
+            throw new IllegalStateException("Cannot escalate resolved or cancelled incident");
         }
 
         incident.severity = newSeverity;
@@ -448,7 +456,7 @@ public class CityRescueImpl implements CityRescue {
         for (int i = 0; i < incidentCount; i++) {
             Incident incident = incidents[i];
 
-            if (!incident.status.equals("REPORTED")) {
+            if (incident.status != IncidentStatus.REPORTED) {
                 continue;
             }
 
@@ -462,7 +470,7 @@ public class CityRescueImpl implements CityRescue {
                     continue;
                 }
 
-                if (unit.status.equals("OUT_OF_SERVICE")) {
+                if (unit.status == UnitStatus.OUT_OF_SERVICE) {
                     continue;
                 }
 
@@ -485,9 +493,9 @@ public class CityRescueImpl implements CityRescue {
             if (bestUnit != null) {
                 bestUnit.assigned = true;
                 bestUnit.incidentId = incident.id;
-                bestUnit.status = "EN_ROUTE";
+                bestUnit.status = UnitStatus.EN_ROUTE;
                 incident.assignedUnitId = bestUnit.id;
-                incident.status = "DISPATCHED";
+                incident.status = IncidentStatus.DISPATCHED;
             }
         }
     }
@@ -498,7 +506,7 @@ public class CityRescueImpl implements CityRescue {
 
         for (int i = 0; i < unitCount; i++) {
             Unit unit = units[i];
-            if (unit.status.equals("EN_ROUTE")) {
+            if (unit.status == UnitStatus.EN_ROUTE) {
                 Incident incident = findIncident(unit.incidentId);
                 if (incident != null) {
                     moveUnitOneStep(unit, incident);
@@ -508,30 +516,30 @@ public class CityRescueImpl implements CityRescue {
 
         for (int i = 0; i < unitCount; i++) {
             Unit unit = units[i];
-            if (unit.status.equals("EN_ROUTE")) {
+            if (unit.status == UnitStatus.EN_ROUTE) {
                 Incident incident = findIncident(unit.incidentId);
                 if (incident != null && unit.x == incident.x && unit.y == incident.y) {
-                    unit.status = "AT_SCENE";
+                    unit.status = UnitStatus.AT_SCENE;
                     unit.workTicksRemaining = unit.getTicksToResolve(incident.severity);
-                    incident.status = "IN_PROGRESS";
+                    incident.status = IncidentStatus.IN_PROGRESS;
                 }
             }
         }
 
         for (int i = 0; i < unitCount; i++) {
             Unit unit = units[i];
-            if (unit.status.equals("AT_SCENE")) {
+            if (unit.status == UnitStatus.AT_SCENE) {
                 unit.workTicksRemaining--;
             }
         }
 
         for (int i = 0; i < incidentCount; i++) {
             Incident incident = incidents[i];
-            if (incident.assignedUnitId != -1 && incident.status.equals("IN_PROGRESS")) {
+            if (incident.assignedUnitId != -1 && incident.status == IncidentStatus.IN_PROGRESS) {
                 Unit unit = findUnit(incident.assignedUnitId);
-                if (unit != null && unit.status.equals("AT_SCENE") && unit.workTicksRemaining <= 0) {
-                    incident.status = "RESOLVED";
-                    unit.status = "IDLE";
+                if (unit != null && unit.status == UnitStatus.AT_SCENE && unit.workTicksRemaining <= 0) {
+                    incident.status = IncidentStatus.RESOLVED;
+                    unit.status = UnitStatus.IDLE;
                     unit.assigned = false;
                     unit.incidentId = -1;
                     unit.workTicksRemaining = 0;
@@ -572,7 +580,7 @@ public class CityRescueImpl implements CityRescue {
                 + " STATUS=" + unit.status
                 + " INCIDENT=" + incidentText;
 
-        if (unit.status.equals("AT_SCENE")) {
+        if (unit.status == UnitStatus.AT_SCENE) {
             result += " WORK=" + unit.workTicksRemaining;
         }
 
